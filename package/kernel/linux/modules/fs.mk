@@ -10,7 +10,7 @@ FS_MENU:=Filesystems
 define KernelPackage/fs-9p
   SUBMENU:=$(FS_MENU)
   TITLE:=Plan 9 Resource Sharing Support
-  DEPENDS:=+kmod-9pnet +LINUX_6_1:kmod-fs-netfs
+  DEPENDS:=+kmod-9pnet +!(LINUX_5_4||LINUX_5_10||LINUX_5_15):kmod-fs-netfs
   KCONFIG:=\
 	CONFIG_9P_FS \
 	CONFIG_9P_FS_POSIX_ACL=n \
@@ -67,7 +67,9 @@ $(eval $(call KernelPackage,fs-autofs4))
 define KernelPackage/fs-btrfs
   SUBMENU:=$(FS_MENU)
   TITLE:=BTRFS filesystem support
-  DEPENDS:=+kmod-lib-crc32c +kmod-lib-lzo +kmod-lib-zlib-inflate +kmod-lib-zlib-deflate +kmod-lib-raid6 +kmod-lib-xor +kmod-lib-zstd
+  DEPENDS:=+kmod-lib-crc32c +kmod-lib-lzo +kmod-lib-zlib-inflate +kmod-lib-zlib-deflate \
+	+kmod-lib-raid6 +kmod-lib-xor +kmod-lib-zstd +kmod-crypto-blake2b +kmod-crypto-xxhash \
+	+LINUX_7_3:kmod-crypto-lib-blake2b
   KCONFIG:=\
 	CONFIG_BTRFS_FS \
 	CONFIG_BTRFS_FS_CHECK_INTEGRITY=n
@@ -92,11 +94,13 @@ define KernelPackage/fs-smbfs-common
 	CONFIG_SMBFS@ge6.1
   DEPENDS:= \
 	+(LINUX_5_4||LINUX_5_10):kmod-crypto-arc4 \
-	+(LINUX_5_4||LINUX_5_10):kmod-crypto-md4
+	+(LINUX_5_4||LINUX_5_10):kmod-crypto-md4 \
+	+(LINUX_6_6||LINUX_6_12||LINUX_6_18||LINUX_7_3):kmod-fs-netfs \
+	+(LINUX_6_6||LINUX_6_12||LINUX_6_18||LINUX_7_3):kmod-nls-ucs2-utils
   FILES:= \
 	$(LINUX_DIR)/fs/smbfs_common/cifs_arc4.ko@lt6.1 \
 	$(LINUX_DIR)/fs/smbfs_common/cifs_md4.ko@lt6.1 \
-	$(LINUX_DIR)/fs/smb/common/cifs_arc4.ko@ge6.1 \
+	$(LINUX_DIR)/fs/smb/common/cifs_arc4.ko@lt6.18 \
 	$(LINUX_DIR)/fs/smb/common/cifs_md4.ko@ge6.1
 endef
 
@@ -130,9 +134,9 @@ define KernelPackage/fs-cifs
     +kmod-crypto-ccm \
     +kmod-crypto-ecb \
     +kmod-crypto-des \
-    +(LINUX_5_15||LINUX_6_1):kmod-asn1-decoder \
-    +(LINUX_5_15||LINUX_6_1):kmod-oid-registry \
-    +(LINUX_5_15||LINUX_6_1):kmod-dnsresolver
+    +!(LINUX_5_4||LINUX_5_10):kmod-asn1-decoder \
+    +!(LINUX_5_4||LINUX_5_10):kmod-oid-registry \
+    +!(LINUX_5_4||LINUX_5_10):kmod-dnsresolver
 endef
 
 define KernelPackage/fs-cifs/description
@@ -348,6 +352,7 @@ define KernelPackage/fs-jfs
   KCONFIG:=CONFIG_JFS_FS
   FILES:=$(LINUX_DIR)/fs/jfs/jfs.ko
   AUTOLOAD:=$(call AutoLoad,30,jfs,1)
+  DEPENDS:=+(LINUX_6_6||LINUX_6_12||LINUX_6_18||LINUX_7_3):kmod-nls-ucs2-utils
   $(call AddDepends/nls)
 endef
 
@@ -356,6 +361,44 @@ define KernelPackage/fs-jfs/description
 endef
 
 $(eval $(call KernelPackage,fs-jfs))
+
+
+define KernelPackage/fs-ksmbd
+  SUBMENU:=$(FS_MENU)
+  TITLE:=SMB kernel server support
+  DEPENDS:=@!(LINUX_5_4||LINUX_5_10) \
+	  +kmod-nls-base \
+	  +kmod-nls-utf8 \
+	  +kmod-crypto-md5 \
+	  +kmod-crypto-hmac \
+	  +kmod-crypto-ecb \
+	  +kmod-crypto-des \
+	  +kmod-crypto-sha256 \
+	  +kmod-crypto-cmac \
+	  +kmod-crypto-sha512 \
+	  +kmod-crypto-aead \
+	  +kmod-crypto-ccm \
+	  +kmod-crypto-gcm \
+	  +kmod-asn1-decoder \
+	  +kmod-oid-registry \
+	  +kmod-fs-smbfs-common
+  KCONFIG:= \
+	CONFIG_SMB_SERVER \
+	CONFIG_SMB_SERVER_SMBDIRECT=n \
+	CONFIG_SMB_SERVER_CHECK_CAP_NET_ADMIN=n \
+	CONFIG_SMB_SERVER_KERBEROS5=n
+  FILES:= \
+	 $(LINUX_DIR)/fs/ksmbd/ksmbd.ko@lt6.1 \
+	 $(LINUX_DIR)/fs/smb/server/ksmbd.ko@ge6.1
+  AUTOLOAD:=$(call AutoLoad,41,ksmbd)
+endef
+
+define KernelPackage/fs-ksmbd/description
+ Kernel module for SMB kernel server support
+endef
+
+$(eval $(call KernelPackage,fs-ksmbd))
+
 
 define KernelPackage/fs-minix
   SUBMENU:=$(FS_MENU)
@@ -392,13 +435,29 @@ $(eval $(call KernelPackage,fs-msdos))
 define KernelPackage/fs-netfs
   SUBMENU:=$(FS_MENU)
   TITLE:=Network Filesystems support
-  DEPENDS:=@(LINUX_5_15||LINUX_6_1)
+  DEPENDS:=@!(LINUX_5_4||LINUX_5_10)
   KCONFIG:= CONFIG_NETFS_SUPPORT
   FILES:=$(LINUX_DIR)/fs/netfs/netfs.ko
   AUTOLOAD:=$(call AutoLoad,28,netfs)
 endef
 
 $(eval $(call KernelPackage,fs-netfs))
+
+
+define KernelPackage/fs-nilfs2
+  SUBMENU:=$(FS_MENU)
+  TITLE:=NILFS2 filesystem support
+  KCONFIG:=CONFIG_NILFS2_FS
+  FILES:=$(LINUX_DIR)/fs/nilfs2/nilfs2.ko
+  AUTOLOAD:=$(call AutoLoad,30,nilfs2)
+  $(call AddDepends/nls)
+endef
+
+define KernelPackage/fs-nilfs2/description
+ Kernel module for NILFS2 filesystem support
+endef
+
+$(eval $(call KernelPackage,fs-nilfs2))
 
 
 define KernelPackage/fs-nfs
@@ -434,12 +493,12 @@ define KernelPackage/fs-nfs-common
 	CONFIG_NFS_V4_1_IMPLEMENTATION_ID_DOMAIN="kernel.org" \
 	CONFIG_NFS_V4_1_MIGRATION=n \
 	CONFIG_NFS_V4_2=y \
+	CONFIG_NFSD_V4_DELEG_TIMESTAMPS=n@ge6.18 \
 	CONFIG_NFS_V4_2_READ_PLUS=n
   FILES:= \
 	$(LINUX_DIR)/fs/lockd/lockd.ko \
 	$(LINUX_DIR)/net/sunrpc/sunrpc.ko \
-	$(LINUX_DIR)/fs/nfs_common/grace.ko \
-	$(LINUX_DIR)/fs/nfs_common/nfs_ssc.ko@ge5.10
+	$(LINUX_DIR)/fs/nfs_common/grace.ko
   AUTOLOAD:=$(call AutoLoad,30,grace sunrpc lockd)
 endef
 
@@ -451,6 +510,12 @@ define KernelPackage/fs-nfs-common-rpcsec
   TITLE:=NFS Secure RPC
   DEPENDS:= \
 	+kmod-fs-nfs-common \
+	+(LINUX_6_18||LINUX_7_3):kmod-crypto-aead \
+	+(LINUX_6_18||LINUX_7_3):kmod-crypto-authenc \
+	+(LINUX_6_18||LINUX_7_3):kmod-crypto-cmac \
+	+(LINUX_6_18||LINUX_7_3):kmod-crypto-misc \
+	+(LINUX_6_18||LINUX_7_3):kmod-crypto-sha256 \
+	+(LINUX_6_18||LINUX_7_3):kmod-crypto-sha512 \
 	+kmod-crypto-des \
 	+kmod-crypto-cbc \
 	+kmod-crypto-cts \
@@ -462,11 +527,15 @@ define KernelPackage/fs-nfs-common-rpcsec
 	+kmod-oid-registry
   KCONFIG:= \
 	CONFIG_SUNRPC_GSS \
-	CONFIG_RPCSEC_GSS_KRB5
+	CONFIG_RPCSEC_GSS_KRB5 \
+	CONFIG_CRYPTO_KRB5@ge6.18 \
+	CONFIG_CRYPTO_KRB5ENC@ge6.18
   FILES:= \
 	$(LINUX_DIR)/net/sunrpc/auth_gss/auth_rpcgss.ko \
-	$(LINUX_DIR)/net/sunrpc/auth_gss/rpcsec_gss_krb5.ko
-  AUTOLOAD:=$(call AutoLoad,31,auth_rpcgss rpcsec_gss_krb5)
+	$(LINUX_DIR)/net/sunrpc/auth_gss/rpcsec_gss_krb5.ko \
+	$(LINUX_DIR)/crypto/krb5/krb5.ko@ge6.18 \
+	$(LINUX_DIR)/crypto/krb5enc.ko@ge6.18
+  AUTOLOAD:=$(call AutoLoad,31,krb5enc@ge6.18 krb5@ge6.18 auth_rpcgss rpcsec_gss_krb5)
 endef
 
 define KernelPackage/fs-nfs-common-rpcsec/description
@@ -499,7 +568,9 @@ define KernelPackage/fs-nfs-v4
   KCONFIG:= \
 	CONFIG_NFS_V4=y
   FILES:= \
-	$(LINUX_DIR)/fs/nfs/nfsv4.ko
+	$(LINUX_DIR)/fs/nfs/nfsv4.ko \
+	$(LINUX_DIR)/fs/nfs/flexfilelayout/nfs_layout_flexfiles.ko \
+	$(LINUX_DIR)/fs/nfs/filelayout/nfs_layout_nfsv41_files.ko
   AUTOLOAD:=$(call AutoLoad,41,nfsv4)
 endef
 
@@ -540,6 +611,7 @@ define KernelPackage/fs-ntfs
   KCONFIG:=CONFIG_NTFS_FS
   FILES:=$(LINUX_DIR)/fs/ntfs/ntfs.ko
   AUTOLOAD:=$(call AutoLoad,30,ntfs)
+  DEPENDS+=@!LINUX_6_12
   $(call AddDepends/nls)
 endef
 
@@ -637,23 +709,6 @@ endef
 
 $(eval $(call KernelPackage,fs-vfat))
 
-
-define KernelPackage/fs-virtiofs
-  SUBMENU:=$(FS_MENU)
-  TITLE:=Virtiofs filesystem support
-  DEPENDS:=+kmod-fuse
-  KCONFIG:=CONFIG_VIRTIO_FS
-  FILES:=$(LINUX_DIR)/fs/fuse/virtiofs.ko
-  AUTOLOAD:=$(call AutoLoad,30,virtiofs)
-endef
-
-define KernelPackage/fs-virtiofs/description
-  Kernel module for Virtiofs filesystem support
-endef
-
-$(eval $(call KernelPackage,fs-virtiofs))
-
-
 define KernelPackage/fs-xfs
   SUBMENU:=$(FS_MENU)
   TITLE:=XFS filesystem support
@@ -683,3 +738,26 @@ define KernelPackage/fuse/description
 endef
 
 $(eval $(call KernelPackage,fuse))
+
+
+define KernelPackage/pstore
+  SUBMENU:=$(FS_MENU)
+  TITLE:=Pstore file system
+  DEFAULT:=m if ALL_KMODS
+  KCONFIG:= \
+	CONFIG_PSTORE \
+	CONFIG_PSTORE_COMPRESS=y \
+	CONFIG_PSTORE_COMPRESS_DEFAULT="deflate" \
+	CONFIG_PSTORE_DEFLATE_COMPRESS=y \
+	CONFIG_PSTORE_DEFLATE_COMPRESS_DEFAULT=y
+  FILES:= $(LINUX_DIR)/fs/pstore/pstore.ko
+  AUTOLOAD:=$(call AutoLoad,30,pstore,1)
+  DEPENDS:=+(LINUX_6_6||LINUX_6_12||LINUX_6_18||LINUX_7_3):kmod-lib-zlib-deflate \
+	   +(LINUX_6_6||LINUX_6_12||LINUX_6_18||LINUX_7_3):kmod-lib-zlib-inflate
+endef
+
+define KernelPackage/pstore/description
+ Kernel module for pstore filesystem support
+endef
+
+$(eval $(call KernelPackage,pstore))

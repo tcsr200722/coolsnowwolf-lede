@@ -1,6 +1,6 @@
 
 #
-# Copyright (C) 2006-2010 OpenWrt.org
+# Copyright (C) 2006-2023 OpenWrt.org
 #
 # This is free software, licensed under the GNU General Public License v2.
 # See /LICENSE for more information.
@@ -51,12 +51,35 @@ endef
 
 $(eval $(call KernelPackage,nf-conncount))
 
+
+define KernelPackage/iptables
+  SUBMENU:=$(NF_MENU)
+  TITLE:=Iptables legacy
+  KCONFIG:= \
+	CONFIG_IP_NF_IPTABLES_LEGACY \
+	CONFIG_NETFILTER_XTABLES \
+	CONFIG_NETFILTER_XTABLES_LEGACY=y \
+	CONFIG_IP6_NF_IPTABLES_LEGACY \
+	CONFIG_BRIDGE_NF_EBTABLES_LEGACY
+  HIDDEN:=1
+  DEPENDS:=@LINUX_6_18||LINUX_7_3
+  FILES:= \
+	$(LINUX_DIR)/net/ipv4/netfilter/ip_tables.ko \
+	$(LINUX_DIR)/net/netfilter/x_tables.ko
+  AUTOLOAD:=$(call AutoProbe,$(notdir ip_tables x_tables))
+endef
+
+$(eval $(call KernelPackage,iptables))
+
+
 define KernelPackage/nf-ipt
   SUBMENU:=$(NF_MENU)
   TITLE:=Iptables core
   KCONFIG:=$(KCONFIG_NF_IPT)
-  FILES:=$(foreach mod,$(NF_IPT-m),$(LINUX_DIR)/net/$(mod).ko)
-  AUTOLOAD:=$(call AutoProbe,$(notdir $(NF_IPT-m)))
+  DEPENDS:=+(LINUX_6_18||LINUX_7_3):kmod-iptables
+  # Linux 7.3 makes these symbols modular again; kmod-iptables owns the files.
+  FILES:=$(foreach mod,$(NF_IPT-m),$(LINUX_DIR)/net/$(mod).ko@lt7.3)
+  AUTOLOAD:=$(call AutoProbe,$(addsuffix @lt7.3,$(notdir $(NF_IPT-m))))
 endef
 
 $(eval $(call KernelPackage,nf-ipt))
@@ -131,6 +154,21 @@ endef
 
 $(eval $(call KernelPackage,nf-conntrack6))
 
+define KernelPackage/nf-dup-inet
+  SUBMENU:=$(NF_MENU)
+  TITLE:=Netfilter nf_tables dup in ip/ip6/inet family support
+  HIDDEN:=1
+  DEPENDS:=+kmod-nf-conntrack
+  KCONFIG:= \
+	CONFIG_NF_DUP_IPV4 \
+	CONFIG_NF_DUP_IPV6
+  FILES:= \
+	$(LINUX_DIR)/net/ipv4/netfilter/nf_dup_ipv4.ko \
+	$(LINUX_DIR)/net/ipv6/netfilter/nf_dup_ipv6.ko
+endef
+
+$(eval $(call KernelPackage,nf-dup-inet))
+
 
 define KernelPackage/nf-log
   SUBMENU:=$(NF_MENU)
@@ -186,7 +224,7 @@ define KernelPackage/nf-flow
 	CONFIG_NETFILTER_INGRESS=y \
 	CONFIG_NF_FLOW_TABLE \
 	CONFIG_NF_FLOW_TABLE_HW
-  DEPENDS:=+kmod-nf-conntrack
+  DEPENDS:=+kmod-nf-conntrack +kmod-nft-core
   FILES:= \
 	$(LINUX_DIR)/net/netfilter/nf_flow_table.ko \
 	$(LINUX_DIR)/net/netfilter/nf_flow_table_hw.ko@lt5.8
@@ -315,7 +353,7 @@ define KernelPackage/ipt-ipopt
   KCONFIG:=$(KCONFIG_IPT_IPOPT)
   FILES:=$(foreach mod,$(IPT_IPOPT-m),$(LINUX_DIR)/net/$(mod).ko)
   AUTOLOAD:=$(call AutoProbe,$(notdir $(IPT_IPOPT-m)))
-  $(call AddDepends/ipt)
+  $(call AddDepends/ipt,+kmod-nf-conntrack)
 endef
 
 define KernelPackage/ipt-ipopt/description
@@ -1054,6 +1092,40 @@ endef
 $(eval $(call KernelPackage,nfnetlink-queue))
 
 
+define KernelPackage/nfnetlink-cthelper
+  TITLE:=Netfilter User space conntrack helpers
+  FILES:=$(LINUX_DIR)/net/netfilter/nfnetlink_cthelper.ko
+  KCONFIG:=CONFIG_NF_CT_NETLINK_HELPER
+  AUTOLOAD:=$(call AutoProbe,nfnetlink_cthelper)
+  $(call AddDepends/nfnetlink,+kmod-nfnetlink-queue +kmod-nf-conntrack-netlink)
+endef
+
+define KernelPackage/nfnetlink-cthelper/description
+ Kernel modules support for a netlink-based connection tracking
+ userspace helpers interface
+endef
+
+$(eval $(call KernelPackage,nfnetlink-cthelper))
+
+
+define KernelPackage/nfnetlink-cttimeout
+  TITLE:=Netfilter conntrack expectation timeout
+  FILES:=$(LINUX_DIR)/net/netfilter/nfnetlink_cttimeout.ko
+  KCONFIG:=CONFIG_NF_CT_NETLINK_TIMEOUT
+  AUTOLOAD:=$(call AutoProbe,nfnetlink_cttimeout)
+  $(call AddDepends/nfnetlink,+kmod-nf-conntrack @KERNEL_NF_CONNTRACK_TIMEOUT)
+endef
+
+define KernelPackage/nfnetlink-cttimeout/description
+ Kernel modules support for a netlink-based connection tracking
+ userspace timeout interface
+
+ Requires CONFIG_NF_CONNTRACK_TIMEOUT (only enabled for non-small flash devices)
+endef
+
+$(eval $(call KernelPackage,nfnetlink-cttimeout))
+
+
 define KernelPackage/nf-conntrack-netlink
   TITLE:=Connection tracking netlink interface
   FILES:=$(LINUX_DIR)/net/netfilter/nf_conntrack_netlink.ko
@@ -1149,6 +1221,22 @@ endef
 $(eval $(call KernelPackage,nft-bridge))
 
 
+define KernelPackage/nft-dup-inet
+  SUBMENU:=$(NF_MENU)
+  TITLE:=Netfilter nf_tables dup in ip/ip6/inet family support
+  DEPENDS:=+kmod-nft-core +kmod-nf-conntrack +IPV6:kmod-nf-conntrack6 +kmod-nf-dup-inet
+  KCONFIG:= \
+	CONFIG_NFT_DUP_IPV4 \
+	CONFIG_NFT_DUP_IPV6
+  FILES:= \
+	$(LINUX_DIR)/net/ipv4/netfilter/nft_dup_ipv4.ko \
+	$(LINUX_DIR)/net/ipv6/netfilter/nft_dup_ipv6.ko
+  AUTOLOAD:=$(call AutoProbe,nft_dup_ipv4 nft_dup_ipv6)
+endef
+
+$(eval $(call KernelPackage,nft-dup-inet))
+
+
 define KernelPackage/nft-nat
   SUBMENU:=$(NF_MENU)
   TITLE:=Netfilter nf_tables NAT support
@@ -1198,6 +1286,7 @@ define KernelPackage/nft-netdev
   DEPENDS:=+kmod-nft-core
   KCONFIG:= \
 	CONFIG_NETFILTER_INGRESS=y \
+	CONFIG_NETFILTER_EGRESS=y \
 	CONFIG_NF_TABLES_NETDEV \
 	CONFIG_NF_DUP_NETDEV \
 	CONFIG_NFT_DUP_NETDEV \
